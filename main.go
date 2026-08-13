@@ -27,9 +27,14 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "run with support for debuggers like delve")
 	flag.Parse()
 
-	// Must match the `source` in required_providers and the dev_overrides key.
+	// The plugin's own identity, used in the protocol handshake and by -debug. It is
+	// conventionally the Terraform Registry form even for a provider used through OpenTofu:
+	// the address here does not decide where the provider is fetched from. `source =
+	// "ineb01/librechat"` resolves against whichever default registry the CLI has -
+	// registry.terraform.io for Terraform, registry.opentofu.org for OpenTofu - and both serve
+	// the same GitHub release.
 	err := providerserver.Serve(context.Background(), provider.New(version), providerserver.ServeOpts{
-		Address: "registry.opentofu.org/ineb01/librechat",
+		Address: "registry.terraform.io/ineb01/librechat",
 		Debug:   debug,
 	})
 	if err != nil {

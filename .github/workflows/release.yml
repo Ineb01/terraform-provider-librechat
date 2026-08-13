@@ -1,0 +1,59 @@
+# Builds and signs a release when a v* tag is pushed. Both the Terraform and the OpenTofu
+# registry read the resulting GitHub release directly, so this workflow is the whole publishing
+# mechanism - there is nothing to upload by hand afterwards.
+#
+# Required repository secrets:
+#   GPG_PRIVATE_KEY  ASCII-armored private signing key (gpg --armor --export-secret-keys <id>)
+#   PASSPHRASE       that key's passphrase; leave the secret unset if the key has none
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  # Needed to create the release and attach artifacts. Deliberately the only permission granted:
+  # this workflow handles a signing key, so it should not also be able to write code.
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # GoReleaser needs the tag history to resolve {{ .Version }}; a shallow clone gives it
+          # a version of "0.0.0" and produces artifacts no registry will accept.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          # Single source of truth for the Go version, so a bump to go.mod is not silently
+          # ignored here.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify the build and tests before signing anything
+        # Cheap, and it means a broken commit cannot become a published version - which matters
+        # because a released version can never be replaced.
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Import the signing key
+        uses: crazy-max/ghaction-import-gpg@v6
+        id: import_gpg
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Read by .goreleaser.yml's signing step. Taken from the import above rather than
+          # hardcoded, so rotating the key needs no change here.
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}

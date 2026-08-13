@@ -31,6 +31,27 @@ resource "librechat_grant" "service" {
 }
 ```
 
+## Installing
+
+```hcl
+terraform {
+  required_providers {
+    librechat = {
+      source  = "ineb01/librechat"
+      version = "~> 0.1"
+    }
+  }
+}
+```
+
+`source` is deliberately unqualified: it resolves against whichever registry the CLI defaults
+to — `registry.terraform.io` for Terraform, `registry.opentofu.org` for OpenTofu — and both
+serve the same GitHub release. Only the release is authoritative; there is no separate build per
+registry.
+
+To work on the provider itself instead, see [Building and using it](#building-and-using-it),
+which bypasses the registry entirely.
+
 ## It talks to MongoDB, not to the REST API
 
 This is the central design decision and it explains most of what follows.
@@ -162,6 +183,50 @@ snapshot for role permissions, BSON's several numeric types, and — cheapest an
 — `ValidateImplementation` on every schema, which catches at test time the things the
 framework otherwise only reports in the middle of somebody's plan. (That is how `provider`
 became `model_provider`: it is a reserved meta-argument in a resource block.)
+
+## Releasing
+
+Pushing a `v*` tag is the whole publishing mechanism. `.github/workflows/release.yml` builds
+every platform with GoReleaser, signs the checksums with the release key, and creates the GitHub
+release; both registries then pick it up from there. Nothing is uploaded by hand.
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+Before the first tag, three things have to be in place — see
+[PUBLISHING.md](PUBLISHING.md) for the full sequence:
+
+- repository secrets `GPG_PRIVATE_KEY` and `PASSPHRASE`
+- the matching **public** key uploaded to each registry
+- the provider claimed on registry.terraform.io and submitted to the OpenTofu registry
+
+Two rules that are easy to break and expensive to fix:
+
+- **Never re-tag or replace a published version.** Both registries cache the checksums, so a
+  replaced artifact fails verification for everyone who already downloaded it. Release
+  `v0.1.1` instead.
+- **Do not let the signing key expire.** Existing releases keep verifying, but new ones cannot
+  be published under a key the registry has recorded as expired.
+
+The docs under `docs/` are generated and must be regenerated whenever a schema description
+changes, or the registry pages go stale:
+
+```sh
+docker compose run --rm go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@latest \
+  generate --provider-name librechat
+```
+
+Validate the release build without publishing anything — worth doing before every tag, because a
+tag cannot be taken back:
+
+```sh
+# Note the mount: this repo is a git submodule, so its .git is a *file* pointing at the
+# superproject. Mounting only this directory makes GoReleaser report "not a git repository".
+docker run --rm -v "$(git rev-parse --show-superproject-working-tree):/repo" \
+  -w "/repo/$(git rev-parse --show-prefix)" goreleaser/goreleaser:latest \
+  release --snapshot --clean --skip=sign,publish,validate
+```
 
 ## Verifying
 

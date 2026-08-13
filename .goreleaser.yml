@@ -1,0 +1,86 @@
+# Release build for the Terraform and OpenTofu registries. Both read GitHub releases directly
+# and both expect exactly the asset layout below, so the names here are a contract rather than
+# a preference:
+#
+#   terraform-provider-librechat_1.0.0_linux_amd64.zip   containing terraform-provider-librechat_v1.0.0
+#   terraform-provider-librechat_1.0.0_manifest.json
+#   terraform-provider-librechat_1.0.0_SHA256SUMS
+#   terraform-provider-librechat_1.0.0_SHA256SUMS.sig    detached binary GPG signature
+#
+# Run by .github/workflows/release.yml on a v* tag. Never re-release a version that has already
+# been published: both registries cache the checksums, and a replaced artifact fails
+# verification for everyone who already downloaded it.
+version: 2
+
+# Set explicitly. GoReleaser otherwise derives it from the working directory, and this
+# repository is checked out as a submodule under a differently named path in the superproject -
+# which would produce artifacts named after the directory and silently fail the registry's
+# naming requirements.
+project_name: terraform-provider-librechat
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    # Reproducibility: without these two the binary embeds the build path and time, so the same
+    # source produces different checksums on every run.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - "-s -w -X main.version={{.Version}}"
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    goarch:
+      - amd64
+      - "386"
+      - arm
+      - arm64
+    ignore:
+      # Apple has shipped neither of these for many years.
+      - goos: darwin
+        goarch: "386"
+      - goos: darwin
+        goarch: arm
+    # The _v prefix on the version is required: this is the name Terraform looks for inside the
+    # zip, and a plain version string is not recognised.
+    binary: "{{ .ProjectName }}_v{{ .Version }}"
+
+archives:
+  - formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+  # The manifest has to be listed in SHA256SUMS as well, not merely attached to the release.
+  extra_files:
+    - glob: terraform-registry-manifest.json
+      name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
+
+signs:
+  - artifacts: checksum
+    args:
+      - --batch
+      - --local-user
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - --output
+      - "${signature}"
+      # Detached and NOT armored. The registries reject an ASCII-armored signature, and the
+      # failure surfaces much later as "unable to verify checksums" during init.
+      - --detach-sign
+      - "${artifact}"
+
+release:
+  extra_files:
+    - glob: terraform-registry-manifest.json
+      name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
+
+changelog:
+  disable: true
