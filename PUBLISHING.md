@@ -30,28 +30,54 @@ upload by hand. The release workflow produces exactly the asset layout they requ
   The UID uses GitHub's noreply address on purpose: it becomes public on both registries, and a
   work address there would tie the provider back to internal projects.
 
-  It was generated **without a passphrase**, because batch mode cannot prompt. Step 1 fixes that.
+  It was generated **without a passphrase**, because batch mode cannot prompt.
 
-## 1. Protect the signing key, then load it into GitHub
+## 1. Load the signing key into GitHub
 
-Add a passphrase first — the private key is about to be stored in a CI secret:
-
-```sh
-gpg --change-passphrase ABBA1CF0F1E47A610EE96F65169796855E550DDF
-```
-
-Then set both secrets. Run these yourself; the private key should not pass through a transcript:
+Run these yourself; the private key should not pass through a transcript or a chat log:
 
 ```sh
 gpg --armor --export-secret-keys ABBA1CF0F1E47A610EE96F65169796855E550DDF \
   | gh secret set GPG_PRIVATE_KEY --repo Ineb01/terraform-provider-librechat
-
-gh secret set PASSPHRASE --repo Ineb01/terraform-provider-librechat   # prompts, not echoed
 ```
 
-Back up the private key somewhere offline as well. Losing it does not break published versions,
-but you cannot publish another under the same key, and adding a new key means re-uploading it to
-both registries.
+Then back the private key up offline. Losing it does not break published versions, but you
+cannot publish another under the same key, and a replacement key has to be re-uploaded to both
+registries.
+
+### On the passphrase
+
+**Optional, and neither registry cares.** GoReleaser signs fine with an unprotected key; leave
+the `PASSPHRASE` secret unset and the workflow works unchanged.
+
+It is worth being clear about what it does and does not protect, because the obvious argument
+for it is wrong. A passphrase does *not* harden CI: it would live in a secret in this same
+repository, readable by this same workflow, so anyone who can read `GPG_PRIVATE_KEY` can read
+`PASSPHRASE` beside it. The two travel together.
+
+What it protects is the key **at rest** — in `~/.gnupg` and in backups. That is a real risk and
+it is the only one in scope here: an unprotected signing key on a workstation can be used by
+anything that can read the user profile.
+
+So pick whichever fits:
+
+- **Keep the key on this machine** → set a passphrase, and set the second secret.
+
+  ```sh
+  gpg --change-passphrase ABBA1CF0F1E47A610EE96F65169796855E550DDF
+  gh secret set PASSPHRASE --repo Ineb01/terraform-provider-librechat   # prompts, not echoed
+  ```
+
+- **Do not keep it here** → skip the passphrase, and remove the local copy once the secret is
+  set and an offline backup exists. Nothing then needs unlocking, because nothing is left to
+  unlock.
+
+  ```sh
+  gpg --delete-secret-keys ABBA1CF0F1E47A610EE96F65169796855E550DDF
+  ```
+
+  Keep the *public* key: it is what the registries verify against, and deleting it would mean
+  re-exporting it from a backup.
 
 ## 2. Terraform Registry
 
