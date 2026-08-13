@@ -1,0 +1,10 @@
+# core.autocrlf is on on the Windows machines this is developed from, and a CRLF checkout of
+# either of these breaks silently: gofmt and `go vet` disagree with a CRLF source file, and
+# check-access.js is executed inside a Linux container.
+*.go text eol=lf
+*.js text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.tf text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf

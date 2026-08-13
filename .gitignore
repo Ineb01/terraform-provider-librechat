@@ -1,0 +1,20 @@
+# Build output and the CLI config that points at it. Both are written by build.ps1 and both
+# carry an absolute path from the machine that built them, so committing either would break
+# the next person's plan in a way that is hard to see.
+/bin/
+dev.tofurc
+
+# OpenTofu working files from running the examples against a throwaway stack. The state in
+# particular holds the example's bcrypt hashes and bearer token.
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Schemas copied out of the LibreChat image while checking a release - see the README.
+/schema/
+
+# Filesystem mirror written by build.ps1 for the sake of `tofu init`.
+/mirror/

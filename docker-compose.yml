@@ -1,0 +1,26 @@
+# Go toolchain in a container, so building this provider needs nothing installed
+# locally beyond Docker. A pinned container also keeps the build reproducible across machines.
+#
+#   docker compose run --rm go build ./...
+#   docker compose run --rm go test ./...
+#   pwsh ./build.ps1              # writes the plugin binary for dev_overrides
+#
+# The module cache is a named volume: without it every run re-downloads the
+# mongo driver and terraform-plugin-framework, which is about a minute each time.
+services:
+  go:
+    image: golang:1
+    working_dir: /src
+    entrypoint: ["go"]
+    volumes:
+      - .:/src
+      - gomodcache:/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    environment:
+      # CGO off keeps the binary static; nothing here needs libc and a Terraform
+      # plugin is executed as a bare process by the CLI.
+      CGO_ENABLED: "0"
+
+volumes:
+  gomodcache:
+  gobuildcache:

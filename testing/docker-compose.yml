@@ -1,0 +1,47 @@
+# A throwaway LibreChat for developing this provider against.
+#
+#   docker compose -f testing/docker-compose.yml up -d
+#   docker compose -f testing/docker-compose.yml down -v      # -v, or the next run inherits state
+#
+# LibreChat itself has to run, not just MongoDB: it seeds the `roles` and `accessroles`
+# collections on start-up, and without those there are no permission templates for a grant to
+# point at and no role for a user to hold. A bare mongo container would make every resource in
+# this provider fail in a way that looks like a provider bug.
+#
+# MongoDB is published on the host so a locally installed `tofu` can reach it. Nothing here is
+# authenticated and nothing here should ever hold real data.
+services:
+  mongodb:
+    image: mongo:7
+    command: mongod --bind_ip_all
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  librechat:
+    # Pinned to the version this provider's field names were read out of. Bumping it is how to
+    # find out whether a release changed the schema - see README, "Checking a new LibreChat".
+    image: librechat/librechat:v0.8.7
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "3080:3080"
+    environment:
+      HOST: 0.0.0.0
+      MONGO_URI: mongodb://mongodb:27017/LibreChat
+      # Meilisearch is not running here, and without this LibreChat retries the connection
+      # noisily forever.
+      SEARCH: "false"
+      ALLOW_REGISTRATION: "true"
+      ALLOW_EMAIL_LOGIN: "true"
+      # Throwaway values for a throwaway stack. LibreChat refuses to start without them, and
+      # they only protect data in this container.
+      JWT_SECRET: 0000000000000000000000000000000000000000000000000000000000000000
+      JWT_REFRESH_SECRET: 1111111111111111111111111111111111111111111111111111111111111111
+      CREDS_KEY: 2222222222222222222222222222222222222222222222222222222222222222
+      CREDS_IV: 33333333333333333333333333333333
