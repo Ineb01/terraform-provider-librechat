@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 var (
@@ -306,8 +307,83 @@ func (r *grantResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	}
 }
 
+// ImportState accepts the ACL row's ObjectId, or the grant named by what identifies it -
+// see grant_import.go for the grammar and why it exists.
+//
+// Only `id` is set here. Read rebuilds every other attribute from the row, including turning
+// the stored roleId back into the configured access_role name, so there is nothing else to
+// reconstruct.
 func (r *grantResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), strings.TrimSpace(req.ID))...)
+	ident := strings.TrimSpace(req.ID)
+
+	if _, err := bson.ObjectIDFromHex(ident); err == nil {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), ident)...)
+		return
+	}
+
+	if !clientReady(r.client, &resp.Diagnostics) {
+		return
+	}
+
+	parsed, err := parseGrantImportID(ident)
+	if err != nil {
+		resp.Diagnostics.AddError("Not a grant id", err.Error()+
+			"\n\nEither the ACL row's ObjectId, or "+grantImportGrammar+
+			" - for example agent/agent_helpdesk/group/Support, mcpServer/dummy/role/ADMIN, "+
+			"or agent/agent_helpdesk/public.")
+		return
+	}
+
+	resourceID, err := r.resolveImportResourceID(ctx, parsed.ResourceType, parsed.ResourceKey)
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot find the shared resource", err.Error())
+		return
+	}
+
+	p, err := r.resolveImportPrincipal(ctx, parsed.PrincipalType, parsed.PrincipalID)
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot resolve the principal", err.Error())
+		return
+	}
+
+	filter := bson.M{"resourceType": parsed.ResourceType, "resourceId": resourceID}
+	for k, v := range p.filter() {
+		filter[k] = v
+	}
+
+	// Two, not one: a second hit means the tuple does not identify a single row here, and
+	// picking either would import a grant the operator did not mean to name.
+	cursor, err := r.client.aclEntries().Find(ctx, filter, options.Find().SetLimit(2))
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot look up the grant", err.Error())
+		return
+	}
+	var docs []aclEntryDoc
+	if err := cursor.All(ctx, &docs); err != nil {
+		resp.Diagnostics.AddError("Cannot read the grant", err.Error())
+		return
+	}
+
+	switch len(docs) {
+	case 0:
+		resp.Diagnostics.AddError("No such grant",
+			fmt.Sprintf("Database %q holds no %s grant of %s to %s. The resource and the "+
+				"principal both exist - it is the grant between them that is missing, so there "+
+				"is nothing to import. Create the resource instead of importing it.",
+				r.client.DatabaseName(), parsed.ResourceType, resourceID.Hex(), p.String()))
+	case 1:
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), docs[0].ID.Hex())...)
+	default:
+		ids := make([]string, 0, len(docs))
+		for _, d := range docs {
+			ids = append(ids, d.ID.Hex())
+		}
+		resp.Diagnostics.AddError("More than one grant matches",
+			fmt.Sprintf("%s names more than one row in %q (%s, and possibly more). LibreChat "+
+				"does not enforce uniqueness on that tuple and separates rows by tenantId, which "+
+				"this provider does not filter on. Import by the ACL row's ObjectId instead.",
+				ident, r.client.DatabaseName(), strings.Join(ids, ", ")))
+	}
 }
 
 // resolvedGrant is everything a write needs, after the configuration has been checked

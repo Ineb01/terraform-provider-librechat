@@ -230,6 +230,79 @@ func TestPrincipalShape(t *testing.T) {
 	})
 }
 
+func TestParseGrantImportID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepted forms", func(t *testing.T) {
+		t.Parallel()
+
+		cases := map[string]grantImportID{
+			"agent/agent_dev_iqs/group/sap": {
+				ResourceType: "agent", ResourceKey: "agent_dev_iqs",
+				PrincipalType: principalTypeGroup, PrincipalID: "sap",
+			},
+			"mcpServer/kb-iqs/role/ADMIN": {
+				ResourceType: "mcpServer", ResourceKey: "kb-iqs",
+				PrincipalType: principalTypeRole, PrincipalID: "ADMIN",
+			},
+			"agent/agent_dev_iqs/public": {
+				ResourceType: "agent", ResourceKey: "agent_dev_iqs",
+				PrincipalType: principalTypePublic,
+			},
+			// The principal is the last field, so a slash in an email survives the split.
+			"agent/agent_dev_iqs/user/first/last@example.test": {
+				ResourceType: "agent", ResourceKey: "agent_dev_iqs",
+				PrincipalType: principalTypeUser, PrincipalID: "first/last@example.test",
+			},
+			// A resource named by ObjectId rather than by its natural key. Parsing does not
+			// care which it is; resolveImportResourceID does.
+			"promptGroup/6a7d85f9807980fd965f4930/role/ADMIN": {
+				ResourceType: "promptGroup", ResourceKey: "6a7d85f9807980fd965f4930",
+				PrincipalType: principalTypeRole, PrincipalID: "ADMIN",
+			},
+			"  agent/agent_dev_iqs/group/sap  ": {
+				ResourceType: "agent", ResourceKey: "agent_dev_iqs",
+				PrincipalType: principalTypeGroup, PrincipalID: "sap",
+			},
+		}
+
+		for in, want := range cases {
+			got, err := parseGrantImportID(in)
+			if err != nil {
+				t.Fatalf("parseGrantImportID(%q) failed: %v", in, err)
+			}
+			if got != want {
+				t.Fatalf("parseGrantImportID(%q) = %+v, want %+v", in, got, want)
+			}
+		}
+	})
+
+	t.Run("rejected forms", func(t *testing.T) {
+		t.Parallel()
+
+		// Every one of these is a mistake that would otherwise be made once and diagnosed
+		// slowly, so each has to fail with an error rather than parse into something plausible.
+		cases := map[string]string{
+			"agent/agent_dev_iqs":                 "too few fields",
+			"agent":                               "no principal at all",
+			"":                                    "empty",
+			"agent//group/sap":                    "no resource named",
+			"agenten/agent_dev_iqs/group/sap":     "unknown resource type",
+			"agent/agent_dev_iqs/gruppe/sap":      "unknown principal type",
+			"agent/agent_dev_iqs/group":           "group without a principal id",
+			"agent/agent_dev_iqs/user":            "user without a principal id",
+			"agent/agent_dev_iqs/role":            "role without a principal id",
+			"agent/agent_dev_iqs/public/everyone": "public naming somebody",
+		}
+
+		for in, why := range cases {
+			if _, err := parseGrantImportID(in); err == nil {
+				t.Fatalf("parseGrantImportID(%q) succeeded; it is %s", in, why)
+			}
+		}
+	})
+}
+
 func TestACLEntryPrincipalIDString(t *testing.T) {
 	t.Parallel()
 

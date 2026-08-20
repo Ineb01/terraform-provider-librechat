@@ -52,6 +52,25 @@ registry.
 To work on the provider itself instead, see [Building and using it](#building-and-using-it),
 which bypasses the registry entirely.
 
+## Importing an estate that already exists
+
+Every resource imports by the name a person actually has: a user by email, a group or MCP server
+by name, an agent by its `agent_id`, a role by its name. ACL rows have no name of their own, so a
+grant is named by the two things that identify it — the resource and the principal:
+
+```sh
+tofu import 'librechat_grant.agent_owner["iqs"]' agent/agent_dev_iqs/role/ADMIN
+tofu import 'librechat_grant.agent_view["iqs"]'  agent/agent_dev_iqs/group/onboarding
+tofu import 'librechat_grant.agent_public["iqs"]' agent/agent_dev_iqs/public
+```
+
+That matters for exactly one job, and it is the job that decides whether this provider is worth
+adopting: taking over an estate somebody else built. A LibreChat deployment with eight agents
+carries something like 37 ACL rows, and importing them by ObjectId means querying MongoDB for
+every one of them first. The ObjectId form still works, and is the fallback when the tuple is
+ambiguous — a multi-tenant deployment separates otherwise identical rows by `tenantId`, and the
+lookup refuses to guess rather than importing an arbitrary row.
+
 ## It talks to MongoDB, not to the REST API
 
 This is the central design decision and it explains most of what follows.

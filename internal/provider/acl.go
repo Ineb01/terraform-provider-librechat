@@ -66,11 +66,17 @@ func (p principal) fields() bson.M {
 }
 
 // String is for diagnostics: "group/674f...", "role/ADMIN", "public".
+// String is for diagnostics, so it prints the same way an import id is written: the hex form
+// of an ObjectId, not the ObjectID(...) wrapper %v gives it.
 func (p principal) String() string {
-	if p.ID == nil {
+	switch id := p.ID.(type) {
+	case nil:
 		return p.Type
+	case bson.ObjectID:
+		return p.Type + "/" + id.Hex()
+	default:
+		return fmt.Sprintf("%s/%v", p.Type, id)
 	}
-	return fmt.Sprintf("%s/%v", p.Type, p.ID)
 }
 
 // resolvePrincipal turns the configured pair into a storable principal, verifying that the
